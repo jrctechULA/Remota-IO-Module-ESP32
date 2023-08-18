@@ -320,19 +320,29 @@ esp_err_t set_adc(void){
 
 void adc_read_value(void *pvParameters){
     int adc_val = 0;
+    uint32_t acum = 0;
     // Statically allocate and initialize the spinlock
     static portMUX_TYPE mb_spinlock = portMUX_INITIALIZER_UNLOCKED;
 
     while (1){
-        adc_oneshot_read(adc1_handle, APP_ADC_CHANNEL, &adc_val);
+        acum = 0;
+        for (size_t i = 0; i < 5; i++)
+        {
+            adc_oneshot_read(adc1_handle, APP_ADC_CHANNEL, &adc_val);
+            acum += adc_val;
+        }
+        adc_val = acum/5;
+        
+        //adc_oneshot_read(adc1_handle, APP_ADC_CHANNEL, &adc_val);
 
-        //portENTER_CRITICAL(&mb_spinlock);
+        portENTER_CRITICAL(&mb_spinlock);
         for (int i=0; i<IOTables.anSize; i++){
             IOTables.anTbl[0][i] = adc_val;
         }
-        //portEXIT_CRITICAL(&mb_spinlock);
+        portEXIT_CRITICAL(&mb_spinlock);
 
         vTaskDelay(pdMS_TO_TICKS(10));
+        //taskYIELD();
     }
 }
 
