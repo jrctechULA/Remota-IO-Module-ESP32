@@ -7,6 +7,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/timers.h"
 
 #include "esp_heap_caps.h"
 
@@ -63,6 +64,22 @@ adc_oneshot_unit_handle_t adc1_handle;
 
 static const char TAG[] = "Slave Main";
 
+union FloatSplit {
+    	float floatValue;
+    	struct {
+        	uint16_t low;  // Registro bajo
+        	uint16_t high; // Registro alto
+    	} uint16Values;
+};
+
+union FloatSplit u;
+
+float Tau = 0.5;
+float Kpert = 0.1;
+float Kproc = 1;
+float yp = 0;
+float yp_ant = 0;
+
 //____________________________________________________________________________________________________
 // Function prototypes:
 //____________________________________________________________________________________________________
@@ -84,6 +101,8 @@ esp_err_t set_adc(void);
 void adc_read_value(void *pvParameters);
 void spi_stuff(void *pvParameters);
 void update_outputs(void *pvParameters);
+void GL_well_process(TimerHandle_t pxTimer);
+void first_order_model(void *pvParameters);
 
 //____________________________________________________________________________________________________
 // Main program:
@@ -166,7 +185,19 @@ void app_main(void)
                 tskIDLE_PRIORITY,
                 &xHandle);
 
+     TimerHandle_t xGLProc_Timer = xTimerCreate("GL_ProcessTimer",
+                             pdMS_TO_TICKS(10),
+                             pdTRUE,
+                             NULL,
+                             GL_well_process);
+        xTimerStart(xGLProc_Timer, pdMS_TO_TICKS(1000));
+        ESP_LOGI(TAG, "Gas Lift Process simulation timer started with interval %u ms", 10);
     
+    /* xTaskCreatePinnedToCore(first_order_model,
+                "first_order_model",
+                STACK_SIZE, NULL,
+                (UBaseType_t) 1U,
+                &xHandle, 1); */
 
     //Free memory
 	//tablesUnload(&IOTables);
@@ -336,7 +367,11 @@ void adc_read_value(void *pvParameters){
         //adc_oneshot_read(adc1_handle, APP_ADC_CHANNEL, &adc_val);
 
         portENTER_CRITICAL(&mb_spinlock);
-        for (int i=0; i<IOTables.anSize; i++){
+        for (int i=0; i<5; i++){
+            IOTables.anTbl[0][i] = adc_val;
+        }
+
+        for (int i=6; i<IOTables.anSize; i++){
             IOTables.anTbl[0][i] = adc_val;
         }
         portEXIT_CRITICAL(&mb_spinlock);
@@ -651,3 +686,37 @@ void update_outputs(void *pvParameters){
         taskYIELD();
     }
 }
+
+void GL_well_process(TimerHandle_t pxTimer){
+    float p = IOTables.anTbl[0][0];
+    
+    u.uint16Values.low = IOTables.anTbl[1][0];
+    u.uint16Values.high = IOTables.anTbl[1][1];
+    
+    //float u = (int16_t)IOTables.anTbl[1][0];
+
+    yp = ((Tau * yp_ant) + (Kproc * u.floatValue * 0.01) + (Kpert * p)) / (Tau + 0.01);
+
+    if(yp <= 0)
+        yp = 0;
+    else if (yp >= 65535)
+        yp = 65535;
+
+    IOTables.anTbl[0][5] = yp;
+    
+    yp_ant = yp;
+}
+
+/* void first_order_model(void *pvParameters){
+    
+    while (1)
+    {
+        float u = (float)IOTables.anTbl[1][0] - 32768;
+        //((Tau * yp_ant) + (K * u * 0.01) + (Kpert * p)) / (Tau + 0.01);
+        yp = ((Tau * yp_ant) + (Kproc * u * 0.01)) / (Tau + 0.01);
+        IOTables.anTbl[0][5] = yp;
+        yp_ant = yp;
+        vTaskDelay(1);
+    }
+    
+} */

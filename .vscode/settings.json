@@ -20,6 +20,7 @@
         "esp_log.h": "c",
         "string.h": "c",
         "spi_slave.h": "c",
-        "queue.h": "c"
+        "queue.h": "c",
+        "chrono": "c"
     }
 }
